@@ -3,6 +3,17 @@ import { PermissionTypes, Permissions } from 'librechat-data-provider';
 import type { IRole } from '~/types';
 
 /**
+ * Schema for model access configuration
+ */
+const modelAccessSchema = new Schema(
+  {
+    enabled: { type: Boolean, default: false },
+    coefficient: { type: Number, default: 1.0, min: 0.1, max: 10.0 },
+  },
+  { _id: false },
+);
+
+/**
  * Uses a sub-schema for permissions. Notice we disable `_id` for this subdocument.
  */
 const rolePermissionsSchema = new Schema(
@@ -53,6 +64,15 @@ const rolePermissionsSchema = new Schema(
     [PermissionTypes.FILE_CITATIONS]: {
       [Permissions.USE]: { type: Boolean },
     },
+    // Новые разрешения для управления ролями и балансами
+    [PermissionTypes.ROLE_MANAGEMENT]: {
+      [Permissions.CREATE]: { type: Boolean },
+      [Permissions.UPDATE]: { type: Boolean },
+      [Permissions.DELETE]: { type: Boolean },
+    },
+    [PermissionTypes.BALANCE_MANAGEMENT]: {
+      [Permissions.UPDATE]: { type: Boolean },
+    },
   },
   { _id: false },
 );
@@ -61,6 +81,12 @@ const roleSchema: Schema<IRole> = new Schema({
   name: { type: String, required: true, unique: true, index: true },
   permissions: {
     type: rolePermissionsSchema,
+  },
+  // Новое поле для управления доступом к моделям
+  modelAccess: {
+    type: Map,
+    of: modelAccessSchema,
+    default: new Map(),
   },
 });
 

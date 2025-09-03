@@ -2,6 +2,12 @@ import { PermissionTypes, Permissions } from 'librechat-data-provider';
 import type { Document } from 'mongoose';
 import { CursorPaginationParams } from '~/common';
 
+// Тип для конфигурации доступа к модели
+export interface ModelAccessConfig {
+  enabled: boolean;
+  coefficient: number;
+}
+
 export interface IRole extends Document {
   name: string;
   permissions: {
@@ -50,7 +56,18 @@ export interface IRole extends Document {
     [PermissionTypes.FILE_CITATIONS]?: {
       [Permissions.USE]?: boolean;
     };
+    // Новые разрешения для управления ролями и балансами
+    [PermissionTypes.ROLE_MANAGEMENT]?: {
+      [Permissions.CREATE]?: boolean;
+      [Permissions.UPDATE]?: boolean;
+      [Permissions.DELETE]?: boolean;
+    };
+    [PermissionTypes.BALANCE_MANAGEMENT]?: {
+      [Permissions.UPDATE]?: boolean;
+    };
   };
+  // Новое поле для управления доступом к моделям
+  modelAccess?: Map<string, ModelAccessConfig>;
 }
 
 export type RolePermissions = IRole['permissions'];
@@ -62,11 +79,13 @@ export type RolePermissionsInput = DeepPartial<RolePermissions>;
 export interface CreateRoleRequest {
   name: string;
   permissions: RolePermissionsInput;
+  modelAccess?: Record<string, ModelAccessConfig>;
 }
 
 export interface UpdateRoleRequest {
   name?: string;
   permissions?: RolePermissionsInput;
+  modelAccess?: Record<string, ModelAccessConfig>;
 }
 
 export interface RoleFilterOptions extends CursorPaginationParams {

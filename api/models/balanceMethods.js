@@ -4,6 +4,7 @@ const { createAutoRefillTransaction } = require('./Transaction');
 const { logViolation } = require('~/cache');
 const { getMultiplier } = require('./tx');
 const { Balance } = require('~/db/models');
+const { getModelCoefficient, checkModelAccess } = require('./roleMethods');
 
 function isInvalidDate(date) {
   return isNaN(date);
@@ -22,8 +23,16 @@ const checkBalanceRecord = async function ({
   amount,
   endpointTokenConfig,
 }) {
-  const multiplier = getMultiplier({ valueKey, tokenType, model, endpoint, endpointTokenConfig });
-  const tokenCost = amount * multiplier;
+  // Проверяем доступ к модели и получаем коэффициент
+  const modelAccess = await checkModelAccess(user, model);
+  if (!modelAccess.hasAccess) {
+    throw new Error(`Model access denied: ${modelAccess.message}`);
+  }
+
+  const baseMultiplier = getMultiplier({ valueKey, tokenType, model, endpoint, endpointTokenConfig });
+  const roleMultiplier = modelAccess.coefficient;
+  const finalMultiplier = baseMultiplier * roleMultiplier;
+  const tokenCost = amount * finalMultiplier;
 
   // Retrieve the balance record
   let record = await Balance.findOne({ user }).lean();
@@ -33,6 +42,9 @@ const checkBalanceRecord = async function ({
       canSpend: false,
       balance: 0,
       tokenCost,
+      baseMultiplier,
+      roleMultiplier,
+      finalMultiplier,
     };
   }
   let balance = record.tokenCredits;
@@ -45,7 +57,9 @@ const checkBalanceRecord = async function ({
     tokenType,
     amount,
     balance,
-    multiplier,
+    baseMultiplier,
+    roleMultiplier,
+    finalMultiplier,
     endpointTokenConfig: !!endpointTokenConfig,
   });
 
@@ -73,8 +87,20 @@ const checkBalanceRecord = async function ({
     }
   }
 
-  logger.debug('[Balance.check] Token cost', { tokenCost });
-  return { canSpend: balance >= tokenCost, balance, tokenCost };
+  logger.debug('[Balance.check] Token cost', { 
+    tokenCost, 
+    baseMultiplier, 
+    roleMultiplier, 
+    finalMultiplier 
+  });
+  return { 
+    canSpend: balance >= tokenCost, 
+    balance, 
+    tokenCost,
+    baseMultiplier,
+    roleMultiplier,
+    finalMultiplier,
+  };
 };
 
 /**

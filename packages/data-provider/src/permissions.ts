@@ -52,6 +52,14 @@ export enum PermissionTypes {
    * Type for using the "File Citations" feature in agents
    */
   FILE_CITATIONS = 'FILE_CITATIONS',
+  /**
+   * Type for Role Management Permissions
+   */
+  ROLE_MANAGEMENT = 'ROLE_MANAGEMENT',
+  /**
+   * Type for Balance Management Permissions
+   */
+  BALANCE_MANAGEMENT = 'BALANCE_MANAGEMENT',
 }
 
 /**
@@ -70,6 +78,7 @@ export enum Permissions {
   VIEW_USERS = 'VIEW_USERS',
   VIEW_GROUPS = 'VIEW_GROUPS',
   VIEW_ROLES = 'VIEW_ROLES',
+  DELETE = 'DELETE',
 }
 
 export const promptPermissionsSchema = z.object({
@@ -144,6 +153,19 @@ export const fileCitationsPermissionsSchema = z.object({
 });
 export type TFileCitationsPermissions = z.infer<typeof fileCitationsPermissionsSchema>;
 
+// Новые схемы для управления ролями и балансами
+export const roleManagementPermissionsSchema = z.object({
+  [Permissions.CREATE]: z.boolean().default(false),
+  [Permissions.UPDATE]: z.boolean().default(false),
+  [Permissions.DELETE]: z.boolean().default(false),
+});
+export type TRoleManagementPermissions = z.infer<typeof roleManagementPermissionsSchema>;
+
+export const balanceManagementPermissionsSchema = z.object({
+  [Permissions.UPDATE]: z.boolean().default(false),
+});
+export type TBalanceManagementPermissions = z.infer<typeof balanceManagementPermissionsSchema>;
+
 // Define a single permissions schema that holds all permission types.
 export const permissionsSchema = z.object({
   [PermissionTypes.PROMPTS]: promptPermissionsSchema,
@@ -158,4 +180,6 @@ export const permissionsSchema = z.object({
   [PermissionTypes.MARKETPLACE]: marketplacePermissionsSchema,
   [PermissionTypes.FILE_SEARCH]: fileSearchPermissionsSchema,
   [PermissionTypes.FILE_CITATIONS]: fileCitationsPermissionsSchema,
+  [PermissionTypes.ROLE_MANAGEMENT]: roleManagementPermissionsSchema,
+  [PermissionTypes.BALANCE_MANAGEMENT]: balanceManagementPermissionsSchema,
 });

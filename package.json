@@ -80,7 +80,9 @@
     "migrate:agent-permissions:batch": "node config/migrate-agent-permissions.js --batch-size=50",
     "migrate:prompt-permissions:dry-run": "node config/migrate-prompt-permissions.js --dry-run",
     "migrate:prompt-permissions": "node config/migrate-prompt-permissions.js",
-    "migrate:prompt-permissions:batch": "node config/migrate-prompt-permissions.js --batch-size=50"
+    "migrate:prompt-permissions:batch": "node config/migrate-prompt-permissions.js --batch-size=50",
+    "migrate:roles": "node config/migrate-roles.js",
+    "migrate:roles:simple": "node config/simple-migrate-roles.js"
   },
   "repository": {
     "type": "git",
@@ -152,5 +154,11 @@
       "admin/",
       "packages/"
     ]
+  },
+  "dependencies": {
+    "@smithy/eventstream-codec": "^4.0.5",
+    "@smithy/signature-v4": "^5.1.3",
+    "dotenv": "^17.2.2",
+    "firebase": "^12.2.1"
   }
 }

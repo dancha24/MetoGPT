@@ -14,6 +14,8 @@ import {
   temporaryChatPermissionsSchema,
   peoplePickerPermissionsSchema,
   fileCitationsPermissionsSchema,
+  roleManagementPermissionsSchema,
+  balanceManagementPermissionsSchema,
 } from './permissions';
 
 /**
@@ -89,6 +91,14 @@ const defaultRolesSchema = z.object({
       [PermissionTypes.FILE_CITATIONS]: fileCitationsPermissionsSchema.extend({
         [Permissions.USE]: z.boolean().default(true),
       }),
+      [PermissionTypes.ROLE_MANAGEMENT]: roleManagementPermissionsSchema.extend({
+        [Permissions.CREATE]: z.boolean().default(true),
+        [Permissions.UPDATE]: z.boolean().default(true),
+        [Permissions.DELETE]: z.boolean().default(true),
+      }),
+      [PermissionTypes.BALANCE_MANAGEMENT]: balanceManagementPermissionsSchema.extend({
+        [Permissions.UPDATE]: z.boolean().default(true),
+      }),
     }),
   }),
   [SystemRoles.USER]: roleSchema.extend({
@@ -147,6 +157,14 @@ export const roleDefaults = defaultRolesSchema.parse({
       [PermissionTypes.FILE_CITATIONS]: {
         [Permissions.USE]: true,
       },
+      [PermissionTypes.ROLE_MANAGEMENT]: {
+        [Permissions.CREATE]: true,
+        [Permissions.UPDATE]: true,
+        [Permissions.DELETE]: true,
+      },
+      [PermissionTypes.BALANCE_MANAGEMENT]: {
+        [Permissions.UPDATE]: true,
+      },
     },
   },
   [SystemRoles.USER]: {
@@ -170,6 +188,14 @@ export const roleDefaults = defaultRolesSchema.parse({
       },
       [PermissionTypes.FILE_SEARCH]: {},
       [PermissionTypes.FILE_CITATIONS]: {},
+      [PermissionTypes.ROLE_MANAGEMENT]: {
+        [Permissions.CREATE]: false,
+        [Permissions.UPDATE]: false,
+        [Permissions.DELETE]: false,
+      },
+      [PermissionTypes.BALANCE_MANAGEMENT]: {
+        [Permissions.UPDATE]: false,
+      },
     },
   },
 });
