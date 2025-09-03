@@ -3,10 +3,15 @@
 const express = require('express');
 const cors = require('cors');
 const mongoose = require('mongoose');
+const jwt = require('jsonwebtoken');
+const bcrypt = require('bcryptjs');
 require('dotenv').config();
 
 const app = express();
 const PORT = 3000;
+
+// JWT секрет (в продакшене должен быть в .env)
+const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production';
 
 app.use(cors());
 app.use(express.json());
@@ -45,6 +50,7 @@ const userSchema = new mongoose.Schema({
   email: { type: String, required: true, unique: true },
   username: { type: String, required: true, unique: true },
   name: { type: String, required: true },
+  password: { type: String, required: true },
   role: { type: String, required: true, default: 'USER' },
   balance: { type: Number, default: 0 },
   createdAt: { type: Date, default: Date.now },
@@ -52,13 +58,42 @@ const userSchema = new mongoose.Schema({
 
 const User = mongoose.model('User', userSchema);
 
-// Простая аутентификация (для тестирования)
-const mockAuth = (req, res, next) => {
-  req.user = { id: 'test-user-id', role: 'ADMIN' };
+// Middleware для проверки JWT токена
+const authenticateToken = (req, res, next) => {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
+
+  if (!token) {
+    return res.status(401).json({ 
+      error: 'Access denied', 
+      message: 'No token provided' 
+    });
+  }
+
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET);
+    req.user = decoded;
+    next();
+  } catch (error) {
+    return res.status(403).json({ 
+      error: 'Invalid token', 
+      message: 'Token is not valid' 
+    });
+  }
+};
+
+// Middleware для проверки роли ADMIN
+const requireAdmin = (req, res, next) => {
+  if (req.user.role !== 'ADMIN') {
+    return res.status(403).json({ 
+      error: 'Access denied', 
+      message: 'Admin role required' 
+    });
+  }
   next();
 };
 
-// Health check
+// Health check (публичный)
 app.get('/health', (req, res) => {
   res.json({ 
     status: 'OK', 
@@ -67,7 +102,7 @@ app.get('/health', (req, res) => {
   });
 });
 
-// Главная страница API
+// Главная страница API (публичная)
 app.get('/', (req, res) => {
   res.send(`
 <!DOCTYPE html>
@@ -89,7 +124,14 @@ app.get('/', (req, res) => {
         .status.error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
         .button { background: #007bff; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; margin: 5px; }
         .button:hover { background: #0056b3; }
+        .button.secondary { background: #6c757d; }
+        .button.danger { background: #dc3545; }
         .result { background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 5px; padding: 15px; margin-top: 15px; font-family: monospace; font-size: 12px; max-height: 300px; overflow-y: auto; white-space: pre-wrap; }
+        .auth-section { background: #fff3cd; border: 1px solid #ffeaa7; border-radius: 5px; padding: 20px; margin: 20px 0; }
+        .form-group { margin-bottom: 15px; }
+        .form-group label { display: block; margin-bottom: 5px; font-weight: bold; }
+        .form-group input { width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; }
+        .token-display { background: #e9ecef; padding: 10px; border-radius: 4px; font-family: monospace; margin: 10px 0; word-break: break-all; }
     </style>
 </head>
 <body>
@@ -101,40 +143,63 @@ app.get('/', (req, res) => {
             ✅ LibreChat работает на <a href="http://localhost:3080" target="_blank">http://localhost:3080</a>
         </div>
         
+        <div class="auth-section">
+            <h2>🔐 Аутентификация</h2>
+            <p><strong>Внимание:</strong> Все API endpoints требуют JWT токен для доступа!</p>
+            
+            <div class="form-group">
+                <label>Email:</label>
+                <input type="email" id="loginEmail" placeholder="admin@example.com" value="admin@example.com">
+            </div>
+            <div class="form-group">
+                <label>Пароль:</label>
+                <input type="password" id="loginPassword" placeholder="password" value="admin123">
+            </div>
+            <button class="button" onclick="login()">Войти</button>
+            <button class="button secondary" onclick="createAdmin()">Создать Admin</button>
+            
+            <div id="tokenResult" style="display: none;">
+                <h3>Ваш JWT токен:</h3>
+                <div class="token-display" id="jwtToken"></div>
+                <p><strong>Используйте этот токен в заголовке:</strong></p>
+                <code>Authorization: Bearer YOUR_TOKEN</code>
+            </div>
+        </div>
+        
         <h2>📊 Статус сервера</h2>
         <button class="button" onclick="checkHealth()">Проверить статус</button>
         <div id="healthResult" class="result" style="display: none;"></div>
         
-        <h2>🔐 API Endpoints</h2>
+        <h2>🔐 API Endpoints (требуют авторизации)</h2>
         
         <div class="endpoint">
             <span class="method">GET</span> <span class="url">/api/admin/users</span>
-            <p>Получить список всех пользователей</p>
+            <p>Получить список всех пользователей (требует ADMIN)</p>
         </div>
         
         <div class="endpoint">
             <span class="method">GET</span> <span class="url">/api/admin/roles</span>
-            <p>Получить список всех ролей</p>
+            <p>Получить список всех ролей (требует ADMIN)</p>
         </div>
         
         <div class="endpoint">
             <span class="method">POST</span> <span class="url">/api/admin/roles</span>
-            <p>Создать новую роль</p>
+            <p>Создать новую роль (требует ADMIN)</p>
         </div>
         
         <div class="endpoint">
             <span class="method">PUT</span> <span class="url">/api/admin/users/:userId/balance</span>
-            <p>Обновить баланс пользователя</p>
+            <p>Обновить баланс пользователя (требует ADMIN)</p>
         </div>
         
         <div class="endpoint">
             <span class="method">PUT</span> <span class="url">/api/admin/users/:userId/role</span>
-            <p>Изменить роль пользователя</p>
+            <p>Изменить роль пользователя (требует ADMIN)</p>
         </div>
         
         <div class="endpoint">
             <span class="method">GET</span> <span class="url">/api/admin/users/:userId/models</span>
-            <p>Получить доступные модели для пользователя</p>
+            <p>Получить доступные модели для пользователя (требует ADMIN)</p>
         </div>
         
         <hr>
@@ -143,6 +208,81 @@ app.get('/', (req, res) => {
     </div>
 
     <script>
+        let currentToken = '';
+        
+        async function makeRequest(url, options = {}) {
+            try {
+                if (currentToken) {
+                    options.headers = {
+                        'Content-Type': 'application/json',
+                        'Authorization': 'Bearer ' + currentToken,
+                        ...options.headers
+                    };
+                }
+                
+                const response = await fetch(url, options);
+                const data = await response.json();
+                return { success: response.ok, data, status: response.status };
+            } catch (error) {
+                return { success: false, data: { error: error.message }, status: 0 };
+            }
+        }
+        
+        async function login() {
+            const email = document.getElementById('loginEmail').value;
+            const password = document.getElementById('loginPassword').value;
+            
+            try {
+                const response = await fetch('/auth/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email, password })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    currentToken = data.token;
+                    document.getElementById('jwtToken').textContent = currentToken;
+                    document.getElementById('tokenResult').style.display = 'block';
+                    alert('Успешный вход! Токен получен.');
+                } else {
+                    alert('Ошибка входа: ' + data.message);
+                }
+            } catch (error) {
+                alert('Ошибка: ' + error.message);
+            }
+        }
+        
+        async function createAdmin() {
+            const email = document.getElementById('loginEmail').value;
+            const password = document.getElementById('loginPassword').value;
+            
+            try {
+                const response = await fetch('/auth/register', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        email, 
+                        password, 
+                        username: 'admin',
+                        name: 'Administrator',
+                        role: 'ADMIN'
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    alert('Admin пользователь создан! Теперь можете войти.');
+                } else {
+                    alert('Ошибка создания: ' + data.message);
+                }
+            } catch (error) {
+                alert('Ошибка: ' + error.message);
+            }
+        }
+        
         async function checkHealth() {
             try {
                 const response = await fetch('/health');
@@ -164,10 +304,109 @@ app.get('/', (req, res) => {
   `);
 });
 
-// GET /api/admin/users
-app.get('/api/admin/users', mockAuth, async (req, res) => {
+// Аутентификация
+app.post('/auth/login', async (req, res) => {
   try {
-    const users = await User.find({});
+    const { email, password } = req.body;
+
+    // Находим пользователя
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.status(401).json({ 
+        error: 'Authentication failed',
+        message: 'Invalid email or password' 
+      });
+    }
+
+    // Проверяем пароль
+    const isValidPassword = await bcrypt.compare(password, user.password);
+    if (!isValidPassword) {
+      return res.status(401).json({ 
+        error: 'Authentication failed',
+        message: 'Invalid email or password' 
+      });
+    }
+
+    // Создаем JWT токен
+    const token = jwt.sign(
+      { 
+        userId: user._id, 
+        email: user.email, 
+        role: user.role 
+      },
+      JWT_SECRET,
+      { expiresIn: '24h' }
+    );
+
+    res.json({
+      message: 'Login successful',
+      token,
+      user: {
+        id: user._id,
+        email: user.email,
+        username: user.username,
+        name: user.name,
+        role: user.role
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      error: 'Login failed',
+      message: error.message 
+    });
+  }
+});
+
+// Регистрация (только для создания первого admin)
+app.post('/auth/register', async (req, res) => {
+  try {
+    const { email, password, username, name, role } = req.body;
+
+    // Проверяем, есть ли уже пользователи
+    const userCount = await User.countDocuments();
+    if (userCount > 0) {
+      return res.status(403).json({ 
+        error: 'Registration disabled',
+        message: 'Registration is only allowed for the first user' 
+      });
+    }
+
+    // Хешируем пароль
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    // Создаем пользователя
+    const user = new User({
+      email,
+      password: hashedPassword,
+      username,
+      name,
+      role: role || 'ADMIN'
+    });
+
+    await user.save();
+
+    res.status(201).json({
+      message: 'User created successfully',
+      user: {
+        id: user._id,
+        email: user.email,
+        username: user.username,
+        name: user.name,
+        role: user.role
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      error: 'Registration failed',
+      message: error.message 
+    });
+  }
+});
+
+// GET /api/admin/users (требует ADMIN)
+app.get('/api/admin/users', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const users = await User.find({}, { password: 0 }); // Исключаем пароли
     res.json({
       users,
       total: users.length,
@@ -180,8 +419,8 @@ app.get('/api/admin/users', mockAuth, async (req, res) => {
   }
 });
 
-// GET /api/admin/roles
-app.get('/api/admin/roles', mockAuth, async (req, res) => {
+// GET /api/admin/roles (требует ADMIN)
+app.get('/api/admin/roles', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const roles = await Role.find({});
     res.json({
@@ -196,8 +435,8 @@ app.get('/api/admin/roles', mockAuth, async (req, res) => {
   }
 });
 
-// POST /api/admin/roles
-app.post('/api/admin/roles', mockAuth, async (req, res) => {
+// POST /api/admin/roles (требует ADMIN)
+app.post('/api/admin/roles', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { name, permissions, modelAccess } = req.body;
 
@@ -230,8 +469,8 @@ app.post('/api/admin/roles', mockAuth, async (req, res) => {
   }
 });
 
-// PUT /api/admin/users/:userId/balance
-app.put('/api/admin/users/:userId/balance', mockAuth, async (req, res) => {
+// PUT /api/admin/users/:userId/balance (требует ADMIN)
+app.put('/api/admin/users/:userId/balance', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { userId } = req.params;
     const { balance, reason } = req.body;
@@ -264,8 +503,8 @@ app.put('/api/admin/users/:userId/balance', mockAuth, async (req, res) => {
   }
 });
 
-// PUT /api/admin/users/:userId/role
-app.put('/api/admin/users/:userId/role', mockAuth, async (req, res) => {
+// PUT /api/admin/users/:userId/role (требует ADMIN)
+app.put('/api/admin/users/:userId/role', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { userId } = req.params;
     const { role } = req.body;
@@ -304,8 +543,8 @@ app.put('/api/admin/users/:userId/role', mockAuth, async (req, res) => {
   }
 });
 
-// GET /api/admin/users/:userId/models
-app.get('/api/admin/users/:userId/models', mockAuth, async (req, res) => {
+// GET /api/admin/users/:userId/models (требует ADMIN)
+app.get('/api/admin/users/:userId/models', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { userId } = req.params;
 
@@ -346,13 +585,18 @@ async function startServer() {
     app.listen(PORT, () => {
       console.log(`🚀 Commercial API server running on http://localhost:${PORT}`);
       console.log(`💚 Health check: http://localhost:${PORT}/health`);
+      console.log(`🔐 Login: http://localhost:${PORT}/auth/login`);
       console.log(`🔧 Admin API: http://localhost:${PORT}/api/admin`);
       console.log(`📊 Users: http://localhost:${PORT}/api/admin/users`);
       console.log(`👥 Roles: http://localhost:${PORT}/api/admin/roles`);
       console.log(`\n🎯 Теперь у вас есть:`);
       console.log(`   • LibreChat на порту 3080`);
-      console.log(`   • Commercial API на порту 3000`);
+      console.log(`   • Commercial API на порту 3000 (с JWT аутентификацией)`);
       console.log(`   • MongoDB на порту 27017`);
+      console.log(`\n🔐 Для доступа к API:`);
+      console.log(`   1. Создайте admin пользователя через веб-интерфейс`);
+      console.log(`   2. Войдите и получите JWT токен`);
+      console.log(`   3. Используйте токен в заголовке Authorization`);
     });
   } catch (error) {
     console.error('Failed to start server:', error);
