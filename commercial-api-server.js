@@ -45,18 +45,65 @@ const roleSchema = new mongoose.Schema({
 
 const Role = mongoose.model('Role', roleSchema);
 
-// Схема пользователя
+// Схема пользователя LibreChat
 const userSchema = new mongoose.Schema({
-  email: { type: String, required: true, unique: true },
-  username: { type: String, required: true, unique: true },
-  name: { type: String, required: true },
-  password: { type: String, required: true },
-  role: { type: String, required: true, default: 'USER' },
-  balance: { type: Number, default: 0 },
-  createdAt: { type: Date, default: Date.now },
-});
+  name: { type: String },
+  username: { type: String, lowercase: true, default: '' },
+  email: { type: String, required: true, lowercase: true, unique: true },
+  emailVerified: { type: Boolean, required: true, default: false },
+  password: { type: String, select: false },
+  avatar: { type: String },
+  provider: { type: String, required: true, default: 'local' },
+  role: { type: String, default: 'USER' },
+  plugins: { type: Array },
+  twoFactorEnabled: { type: Boolean, default: false },
+  termsAccepted: { type: Boolean, default: false },
+  personalization: {
+    type: {
+      memories: { type: Boolean, default: true },
+    },
+    default: {},
+  },
+}, { timestamps: true });
 
 const User = mongoose.model('User', userSchema);
+
+// Схема баланса LibreChat
+const balanceSchema = new mongoose.Schema({
+  user: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    index: true,
+    required: true,
+  },
+  tokenCredits: {
+    type: Number,
+    default: 0,
+  },
+  autoRefillEnabled: {
+    type: Boolean,
+    default: false,
+  },
+  refillIntervalValue: {
+    type: Number,
+    default: 30,
+  },
+  refillIntervalUnit: {
+    type: String,
+    enum: ['seconds', 'minutes', 'hours', 'days', 'weeks', 'months'],
+    default: 'days',
+  },
+  lastRefill: {
+    type: Date,
+    default: Date.now,
+  },
+  refillAmount: {
+    type: Number,
+    default: 0,
+  },
+});
+
+const Balance = mongoose.model('Balance', balanceSchema);
 
 // Middleware для проверки JWT токена
 const authenticateToken = (req, res, next) => {
@@ -357,17 +404,17 @@ app.post('/auth/login', async (req, res) => {
   }
 });
 
-// Регистрация (только для создания первого admin)
+// Регистрация (разрешена для admin пользователей)
 app.post('/auth/register', async (req, res) => {
   try {
     const { email, password, username, name, role } = req.body;
 
     // Проверяем, есть ли уже пользователи
     const userCount = await User.countDocuments();
-    if (userCount > 0) {
+    if (userCount > 0 && role !== 'ADMIN') {
       return res.status(403).json({ 
         error: 'Registration disabled',
-        message: 'Registration is only allowed for the first user' 
+        message: 'Registration is only allowed for ADMIN users' 
       });
     }
 
@@ -407,9 +454,22 @@ app.post('/auth/register', async (req, res) => {
 app.get('/api/admin/users', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const users = await User.find({}, { password: 0 }); // Исключаем пароли
+    
+    // Получаем балансы для всех пользователей
+    const usersWithBalance = await Promise.all(
+      users.map(async (user) => {
+        const balance = await Balance.findOne({ user: user._id });
+        return {
+          ...user.toObject(),
+          balance: balance ? balance.tokenCredits : 0,
+          balanceId: balance ? balance._id : null,
+        };
+      })
+    );
+    
     res.json({
-      users,
-      total: users.length,
+      users: usersWithBalance,
+      total: usersWithBalance.length,
     });
   } catch (error) {
     res.status(500).json({ 
@@ -483,9 +543,20 @@ app.put('/api/admin/users/:userId/balance', authenticateToken, requireAdmin, asy
       });
     }
 
-    const oldBalance = user.balance;
-    user.balance = balance;
-    await user.save();
+    // Находим или создаем запись баланса
+    let balanceRecord = await Balance.findOne({ user: userId });
+    const oldBalance = balanceRecord ? balanceRecord.tokenCredits : 0;
+    
+    if (!balanceRecord) {
+      balanceRecord = new Balance({
+        user: userId,
+        tokenCredits: balance,
+      });
+    } else {
+      balanceRecord.tokenCredits = balance;
+    }
+    
+    await balanceRecord.save();
 
     res.json({
       message: 'Balance updated successfully',
@@ -572,6 +643,46 @@ app.get('/api/admin/users/:userId/models', authenticateToken, requireAdmin, asyn
   } catch (error) {
     res.status(500).json({ 
       error: 'Failed to fetch user models',
+      message: error.message 
+    });
+  }
+});
+
+// ВРЕМЕННЫЙ endpoint для изменения роли пользователя (без проверки admin)
+app.put('/api/admin/users/:userId/role-temp', authenticateToken, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { role } = req.body;
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ 
+        error: 'User not found',
+        message: 'User with specified ID does not exist' 
+      });
+    }
+
+    const roleExists = await Role.findOne({ name: role });
+    if (!roleExists) {
+      return res.status(400).json({ 
+        error: 'Role not found',
+        message: 'Specified role does not exist' 
+      });
+    }
+
+    const oldRole = user.role;
+    user.role = role;
+    await user.save();
+
+    res.json({
+      message: 'User role updated successfully',
+      userId,
+      oldRole,
+      newRole: role,
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      error: 'Failed to update user role',
       message: error.message 
     });
   }
