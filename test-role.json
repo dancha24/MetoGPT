@@ -1,0 +1,21 @@
+{
+  "name": "TEST",
+  "permissions": {
+    "ROLE_MANAGEMENT": {
+      "CREATE": true,
+      "UPDATE": true,
+      "DELETE": true
+    }
+  },
+  "modelAccess": {
+    "gpt-4": {
+      "enabled": true,
+      "coefficient": 1.5
+    },
+    "claude-3": {
+      "enabled": true,
+      "coefficient": 1.8
+    }
+  }
+}
+
